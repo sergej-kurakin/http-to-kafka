@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"io"
 	"log"
 	"net/http"
@@ -49,29 +50,62 @@ func main() {
 	})
 
 	helloHandler := func(w http.ResponseWriter, req *http.Request) {
-		io.WriteString(w, "Hello, world!\n")
+		if req.Method != http.MethodPost {
+			http.Error(w, "Only POST requests are allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		if req.Header.Get("Content-Type") != "application/json" {
+			http.Error(w, "Content-Type must be application/json", http.StatusUnsupportedMediaType)
+			return
+		}
+
+		body, err := io.ReadAll(req.Body)
+		log.Printf("Received a POST request with body: %s", string(body))
+
+		defer req.Body.Close()
+
+		var data map[string]interface{}
+
+		err = json.Unmarshal(body, &data)
+		if err != nil {
+			http.Error(w, "Failed to parse JSON body", http.StatusBadRequest)
+			log.Printf("Failed to parse JSON body: %s", err)
+			return
+		}
+
+		remoteAddr := req.RemoteAddr
+		log.Printf("Remote address: %s", remoteAddr)
+
+		data["remoteAddr"] = remoteAddr
+
+		payload, err := json.Marshal(data)
+		if err != nil {
+			log.Printf("Failed to serialize your data: %s", err)
+		}
 
 		partition, offset, err := producer.SendMessage(&sarama.ProducerMessage{
 			Topic: topic,
-			Key:   sarama.StringEncoder("Key-A"),
-			Value: sarama.StringEncoder("Hello World!"),
+			Value: sarama.StringEncoder(string(payload)),
 		})
 
 		if err != nil {
-			// fmt.Fprintf(w, "Failed to store your data: %s", err)
 			log.Printf("Failed to store your data: %s", err)
 		} else {
-			// fmt.Fprintf(w, "Your data is stored with unique identifier important/%d/%d", partition, offset)
 			log.Printf("Your data is stored with unique identifier important/%d/%d", partition, offset)
 		}
+
+		w.WriteHeader(http.StatusCreated)
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Write([]byte("Created\n"))
 
 		opsProcessed.Inc()
 	}
 
-	http.HandleFunc("/hello", helloHandler)
+	http.HandleFunc("/track", helloHandler)
 	http.Handle("/metrics", promhttp.Handler())
 
-	log.Printf("Listing for requests at http://%s/hello", bindAddress)
-	log.Printf("Serving metrics at http://%s/metrics", bindAddress)
+	log.Printf("Listing for track requests at http://%s/track", bindAddress)
+	log.Printf("Serving metric requests at http://%s/metrics", bindAddress)
 	log.Fatal(http.ListenAndServe(bindAddress, nil))
 }
