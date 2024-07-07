@@ -23,3 +23,25 @@ services:
       - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
       - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@kafka:9093
       - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+  locust-master:
+    image: locustio/locust
+    ports:
+     - "8089:8089"
+    volumes:
+      - ./locust:/mnt/locust
+    command: -f /mnt/locust/locustfile.py --master -H http://app:8080
+  
+  locust-worker:
+    image: locustio/locust
+    volumes:
+      - ./locust:/mnt/locust
+    command: -f /mnt/locust/locustfile.py --worker --master-host locust-master
+  kafdrop:
+    image: obsidiandynamics/kafdrop
+    ports:
+      - "9000:9000"
+    environment:
+      KAFKA_BROKER_CONNECT: kafka:9092
+      JVM_OPTS: "-Xms32M -Xmx64M"
+    depends_on:
+      - kafka
